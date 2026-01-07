@@ -3,6 +3,7 @@
 	"workspace": {
 		"library": [
 			"./koreader/frontend",
+			"./koreader/base",
 			"./koreader"
 		],
 		"ignoreDir": [
