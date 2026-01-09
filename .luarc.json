@@ -11,5 +11,15 @@
 			".git"
 		]
 	},
-	"runtime.version": "LuaJIT"
+	"runtime.version": "LuaJIT",
+	"diagnostics": {
+		"disable": [
+			"undefined-doc-name",
+			"luadoc-miss-type-name",
+			"inject-field",
+			"missing-parameter",
+			"undefined-field",
+			"param-type-mismatch"
+		]
+	}
 }
