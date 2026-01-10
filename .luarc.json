@@ -1,25 +1,26 @@
 {
-	"$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
-	"workspace": {
-		"library": [
-			"./koreader/frontend",
-			"./koreader/base",
-			"./koreader"
-		],
-		"ignoreDir": [
-			".vscode",
-			".git"
-		]
-	},
-	"runtime.version": "LuaJIT",
-	"diagnostics": {
-		"disable": [
-			"undefined-doc-name",
-			"luadoc-miss-type-name",
-			"inject-field",
-			"missing-parameter",
-			"undefined-field",
-			"param-type-mismatch"
-		]
-	}
+    "$schema": "https://raw.githubusercontent.com/sumneko/vscode-lua/master/setting/schema.json",
+    "workspace": {
+        "library": [
+            "./koreader/frontend",
+            "./koreader/base",
+            "./koreader",
+            "."
+        ],
+        "ignoreDir": [
+            ".vscode",
+            ".git"
+        ]
+    },
+    "runtime.version": "LuaJIT",
+    "diagnostics": {
+        "disable": [
+            "undefined-doc-name",
+            "luadoc-miss-type-name",
+            "inject-field",
+            "missing-parameter",
+            "undefined-field",
+            "param-type-mismatch"
+        ]
+    }
 }
