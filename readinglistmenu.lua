@@ -49,7 +49,7 @@ function ReadingListMenu:showListMenu(reading_list)
 
     -- Create reading list menu widget
     self.list_menu = Menu:new({
-        path = reading_list.settings.name,
+        path = reading_list.name,
         subtitle = "",
         covers_fullscreen = true,
         is_borderless = true,
@@ -114,7 +114,7 @@ function ReadingListMenu:updateListMenuItemTable(reading_list, item_table)
     end
 
     -- Add item count to menu title
-    local title = T("%1 (%2)", reading_list.settings.name, #item_table)
+    local title = T("%1 (%2)", reading_list.name, #item_table)
 
     -- Update menu
     self.list_menu:switchItemTable(title, item_table, -1, nil)
@@ -204,9 +204,9 @@ function ReadingListMenu:updateAllListsMenuItemTable(reading_lists, item_number)
         -- set item table items for reading lists data
         for _, reading_list_value in pairs(reading_lists) do
             table.insert(item_table, {
-                text = reading_list_value.settings.name,
-                name = reading_list_value.settings.name,
-                order = reading_list_value.settings.order,
+                text = reading_list_value.name,
+                name = reading_list_value.name,
+                order = reading_list_value.order,
             })
         end
 
@@ -248,9 +248,9 @@ function ReadingListMenu:onShowAllListsMenuDialog()
                             -- Add new list to menu if created
                             if new_reading_list then
                                 table.insert(self.all_lists_menu.item_table, {
-                                    text = new_reading_list.settings.name,
-                                    name = new_reading_list.settings.name,
-                                    order = new_reading_list.settings.order,
+                                    text = new_reading_list.name,
+                                    name = new_reading_list.name,
+                                    order = new_reading_list.order,
                                 })
 
                                 self:updateAllListsMenuItemTable(nil, #self.all_lists_menu.item_table) -- Show new reading list

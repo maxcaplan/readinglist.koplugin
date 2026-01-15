@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Example of a reading list xml data file -->
+
+<reading-lists
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd"
+    version="1"
+>
+    <reading-list>
+        <name>My Reading List</name>
+    </reading-list>
+
+    <reading-list>
+        <name>Another Reading List</name>
+    </reading-list>
+
+    <!-- Order of data is determined by it's position in xml -->
+    <reading-list>
+        <name>Last Reading List</name>
+    </reading-list>
+</reading-lists>

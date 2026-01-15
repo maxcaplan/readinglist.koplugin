@@ -1,19 +1,35 @@
 --[[
-Reading list plugin reading list manager
+Reading list plugin data manager
 
 @module koplugin.readinglist.readinglistmanager
 --]]
 
-local DataStorage = require("datastorage")
-local LuaSettings = require("luasettings")
+local xml2lua = require("xml2lua.xml2lua")
+local handler = require("xml2lua.xmlhandler.tree")
 
+local DataStorage = require("datastorage")
+
+local logger = require("logger")
 local util = require("util")
+local ffiUtil = require("ffi/util")
+local lfs = require("libs/libkoreader-lfs")
+
+local T = ffiUtil.template
+
+local XML_DECLARATION_STRING = '<?xml version="1.0" encoding="UTF-8"?>'
 
 local ReadingListManager = {
-    reading_lists_file = DataStorage:getSettingsDir() .. "reading_lists.lua", -- Path to reading lists data file
-    reading_lists = nil, -- Reading lists settings
+    reading_lists_file = "reading_lists.xml", -- Reading lists data file name
+    reading_lists_path = nil, -- Reading lists data file path
+    parser = nil, -- Data file parser
+    handler = nil, -- Data parser handler
     data = nil, -- Reading lists data table
     updated = false, -- Whether there are unflushed reading list settings
+    max_order = 0, -- Read only maximum order value for data
+    root = { -- Data associated with the root XML element
+        schema_version = "1.0", -- XML data schema version
+        schema_uri = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd", -- XML data schema file location
+    },
 }
 
 --- Create a new reading list manager instance
@@ -22,45 +38,168 @@ function ReadingListManager:new(o)
     setmetatable(o, self)
     self.__index = self
 
+    o:init()
+
     return o
 end
 
---- Load reading lists data
-function ReadingListManager:loadReadingLists()
-    if self.reading_lists then
+--- Initialize reading list manager instance
+function ReadingListManager:init()
+    -- Ensure reading lists file name is set
+    if not self.reading_lists_file then
+        logger.err("Reading lists file can not be nil")
         return
     end
 
-    self.reading_lists = LuaSettings:open(self.reading_lists_file)
-    self.data = self.reading_lists.data
+    -- Ensure reading lists file path is set
+    if not self.reading_lists_path then
+        self.reading_lists_path = DataStorage:getDataDir() .. "/" .. self.reading_lists_file
+    end
 
-    for data_key, data_value in pairs(self.data) do
-        -- Ensure reading list has settings table
-        if not data_value.settings then
-            data_value.settings = {}
+    -- Instantiate XML parser
+    self.handler = handler:new()
+    self.parser = xml2lua.parser(self.handler)
+end
+
+--- Load reading lists data
+function ReadingListManager:load()
+    if self.data then
+        return
+    end
+
+    -- Read data from file
+    local file_exists = lfs.attributes(self.reading_lists_path, "mode") == "file"
+    local xml, read_err = util.readFromFile(self.reading_lists_path, "r")
+    local loaded_data
+
+    if xml == nil then
+        if file_exists then
+            logger.err(T("Failed to load %1: %2", self.reading_lists_path, read_err))
         end
+    else
+        -- Parse file data
+        local parse_ok, parse_err = pcall(function()
+            return self.parser:parse(xml)
+        end)
 
-        -- Ensure reading list has a name
-        if not data_value.settings.name then
-            data_value.settings.name = data_key
-            self.updated = true
+        if not parse_ok then
+            logger.err(T("Failed to parse %1, %2", self.reading_lists_path, parse_err))
+        else
+            -- Verify XML root element
+            if not self.handler.root["reading-lists"] then
+                logger.err(T("Invalid reading lists xml: %1", self.reading_lists_path))
+            end
+
+            -- Verify XML data schema version
+            if
+                not self.handler.root["reading-lists"]._attr
+                or self.handler.root["reading-lists"]._attr.version ~= self.root.schema_version
+            then
+                if self.handler.root["reading-lists"]._attr.version then
+                    logger.err(
+                        T(
+                            _(
+                                "Data schema version '%1' does not match plugin schema version '%2'. Data loss or errors may occur"
+                            ),
+                            self.handler.root["reading-lists"]._attr.version,
+                            self.root.schema_version
+                        )
+                    )
+                else
+                    logger.warn(_("Data schema version missing from data. Data loss or errors may occur"))
+                end
+            end
+
+            -- Ensure data is same shape for multiple lists or single list or no lists
+            if not self.handler.root["reading-lists"]["reading-list"] then
+                loaded_data = {}
+            elseif #self.handler.root["reading-lists"]["reading-list"] > 1 then
+                loaded_data = self.handler.root["reading-lists"]["reading-list"]
+            else
+                loaded_data = { self.handler.root["reading-lists"]["reading-list"] }
+            end
         end
     end
 
-    self:flush()
+    self.data = {}
+
+    -- Transform loaded data
+    if loaded_data then
+        for data_idx, data_value in ipairs(loaded_data) do
+            if data_value.name and data_value.name ~= "" then
+                self.data[data_value.name] = data_value
+
+                -- Ensure reading list has list items table
+                if not data_value["list-items"] then
+                    self.data[data_value.name]["list-items"] = {}
+                end
+
+                -- Set data order value
+                self.data[data_value.name].order = data_idx
+                self.max_order = data_idx
+            else
+                logger.warn("Reading list does not have name. Skipping")
+            end
+        end
+    end
+
+    print()
 end
 
 --- Write reading list data to file
 function ReadingListManager:flush()
-    if not (self.reading_lists == nil) and self.updated then
-        self.reading_lists:flush()
+    if self.data == nil or not self.updated then
+        return
+    end
+
+    local write_data = {
+        ["reading-lists"] = {
+            _attr = {
+                version = self.root.schema_version,
+                ["xmlns:xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+                ["xsi:noNamespaceSchemaLocation"] = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd",
+            },
+        },
+    }
+
+    -- Format data for writing to xml
+    for _, data_value in self:dataPairs() do
+        if not write_data["reading-lists"]["reading-list"] then
+            write_data["reading-lists"]["reading-list"] = {}
+        end
+
+        local reading_list = util.tableDeepCopy(data_value)
+
+        -- Remove order value from reading list
+        reading_list.order = nil
+
+        -- Add reading list data to write data
+        table.insert(write_data["reading-lists"]["reading-list"], reading_list)
+    end
+
+    -- Convert data to xml
+    local xml = xml2lua.toXml(write_data)
+
+    -- Prepend xml declaration to xml string
+    xml = XML_DECLARATION_STRING .. "\n\n" .. xml
+
+    logger.info("XML TO SAVE")
+    logger.info(xml)
+
+    -- Write xml data to file
+    local file, open_err = io.open(self.reading_lists_path, "w")
+
+    if file and not open_err then
+        file:write(xml)
         self.updated = false
+    else
+        logger.err(T("Failed to write reading lists to file: %1", open_err))
     end
 end
 
 -- Get all reading lists
 function ReadingListManager:getAllLists()
-    self:loadReadingLists()
+    self:load()
     return self.data
 end
 
@@ -71,7 +210,7 @@ function ReadingListManager:getList(name)
         return
     end
 
-    self:loadReadingLists()
+    self:load()
 
     return self.data[name]
 end
@@ -84,18 +223,19 @@ function ReadingListManager:createList(name)
         return
     end
 
-    self:loadReadingLists()
+    self:load()
 
     if self.data[name] then
         return
     end
 
+    -- Increment max order value
+    self.max_order = self.max_order + 1
+
     self.data[name] = {
-        settings = {
-            name = name,
-            order = self:maxOrder() + 1,
-        },
-        items = {},
+        name = name,
+        order = self.max_order,
+        ["list-items"] = {},
     }
 
     self.updated = true
@@ -111,7 +251,12 @@ function ReadingListManager:deleteList(name)
         return false
     end
 
-    self:loadReadingLists()
+    self:load()
+
+    -- Update max order value if deleted list was the highest order
+    if self.data[name].order >= self.max_order then
+        self:updateMaxOrder()
+    end
 
     self.data[name] = nil
     self.updated = true
@@ -128,7 +273,7 @@ function ReadingListManager:updateListName(old_name, new_name)
         return
     end
 
-    self:loadReadingLists()
+    self:load()
 
     if self.data[old_name] == nil then
         return
@@ -136,7 +281,7 @@ function ReadingListManager:updateListName(old_name, new_name)
 
     -- Create copy of reading list with new name
     self.data[new_name] = util.tableDeepCopy(self.data[old_name])
-    self.data[new_name].settings.name = new_name
+    self.data[new_name].name = new_name
 
     -- Delete reading list with old name
     self.data[old_name] = nil
@@ -146,19 +291,73 @@ function ReadingListManager:updateListName(old_name, new_name)
     return self.data[new_name]
 end
 
---- Get highest order value from reading lists
-function ReadingListManager:maxOrder()
-    local max_order = 0
+--- Update max order value for current data
+function ReadingListManager:updateMaxOrder()
+    self.max_order = 0
 
     if self.data then
         for _, data_value in pairs(self.data) do
-            if data_value.settings.order > max_order then
-                max_order = data_value.settings.order
+            if data_value.order > self.max_order then
+                self.max_order = data_value.order
             end
         end
     end
 
-    return max_order
+    return self.max_order
+end
+
+--- Functions like ```pairs(data)``` but returns data pairs
+-- based on their order value
+function ReadingListManager:dataPairs()
+    local dataNext = function(data, key)
+        return self:_dataNext(data, key)
+    end
+    return dataNext, self.data, nil
+end
+
+--- Internal method to get next data pair in order
+function ReadingListManager:_dataNext(data, key)
+    if data == nil then
+        return nil
+    end
+
+    -- Ensure max order is set
+    if not self.max_order then
+        self:updateMaxOrder()
+    end
+
+    -- Return initial index and value
+    if key == nil then
+        -- Return table item with smallest order
+        local value = nil
+        local order
+
+        for data_key, data_value in pairs(data) do
+            if order == nil or data_value.order < order then
+                order = data_value.order
+                value = data_value
+                key = data_key
+            end
+        end
+
+        return key, value
+    end
+
+    local order = data[key].order
+
+    -- Return next value in order
+    while order <= self.max_order do
+        order = order + 1
+
+        for data_key, data_value in pairs(data) do
+            if data_value.order == order then
+                return data_key, data_value
+            end
+        end
+    end
+
+    -- No more items
+    return nil
 end
 
 return ReadingListManager

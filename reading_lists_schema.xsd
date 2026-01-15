@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" version="1">
+    <!-- Schema version attribute type -->
+    <xs:simpleType name="version">
+        <xs:restriction base="xs:string">
+            <!-- Ensure version number follows XX.XX format -->
+            <xs:pattern value="(\d+\.)?(\*|\d+)"></xs:pattern>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Reading list name data type -->
+    <xs:simpleType name="readingListName">
+        <xs:restriction base="xs:string">
+            <xs:minLength value="1"></xs:minLength>
+            <xs:maxLength value="256"></xs:maxLength>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- List item name data type -->
+    <xs:simpleType name="listItemName">
+        <xs:restriction base="xs:string">
+            <xs:minLength value="1"></xs:minLength>
+            <xs:maxLength value="256"></xs:maxLength>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!-- Reading lists element type -->
+    <xs:complexType name="readingLists">
+        <xs:sequence>
+            <xs:element name="reading-list" type="readingList" minOccurs="0"
+                maxOccurs="unbounded">
+                <xs:annotation>
+                    <xs:appinfo>Individual reading list data</xs:appinfo>
+                </xs:annotation>
+            </xs:element>
+        </xs:sequence>
+        <xs:attribute name="version" type="version" use="required">
+            <xs:annotation>
+                <xs:appinfo>Reading lists data schema version number</xs:appinfo>
+                <xs:appinfo>Version numbers follow the following format: XX.XX</xs:appinfo>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:complexType>
+
+    <!-- Reading list element type -->
+    <xs:complexType name="readingList">
+        <xs:sequence>
+            <xs:element name="name" type="readingListName">
+                <xs:annotation>
+                    <xs:appinfo>Name of the reading list</xs:appinfo>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="list-items" type="listItems" minOccurs="0">
+                <xs:annotation>
+                    <xs:appinfo>List of items in the reading list</xs:appinfo>
+                </xs:annotation>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Reading list list items element type -->
+    <xs:complexType name="listItems">
+        <xs:sequence>
+            <xs:element name="list-item" type="listItem" minOccurs="0" maxOccurs="unbounded">
+                <xs:annotation>
+                    <xs:appinfo>An individual reading list item</xs:appinfo>
+                </xs:annotation>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Reading list list item element type -->
+    <xs:complexType name="listItem">
+        <xs:sequence>
+            <xs:element name="name" type="listItemName">
+                <xs:annotation>
+                    <xs:appinfo>List item name</xs:appinfo>
+                </xs:annotation>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <!-- Root element -->
+    <xs:element name="reading-lists" type="readingLists">
+        <xs:annotation>
+            <xs:appinfo>Root element for reading lists data</xs:appinfo>
+        </xs:annotation>
+    </xs:element>
+</xs:schema>
