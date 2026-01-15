@@ -4,8 +4,9 @@ Reading list plugin data manager
 @module koplugin.readinglist.readinglistmanager
 --]]
 
-local xml2lua = require("xml2lua.xml2lua")
-local handler = require("xml2lua.xmlhandler.tree")
+local xml2lua = require("lib.xml2lua.xml2lua")
+local handler = require("lib.xml2lua.xmlhandler.tree")
+local pluginUtil = require("lib.util")
 
 local DataStorage = require("datastorage")
 
@@ -19,6 +20,7 @@ local T = ffiUtil.template
 local XML_DECLARATION_STRING = '<?xml version="1.0" encoding="UTF-8"?>'
 
 local ReadingListManager = {
+    schema_version = { major = 1, minor = 0 }, -- XML data schema version
     reading_lists_file = "reading_lists.xml", -- Reading lists data file name
     reading_lists_path = nil, -- Reading lists data file path
     parser = nil, -- Data file parser
@@ -27,16 +29,20 @@ local ReadingListManager = {
     updated = false, -- Whether there are unflushed reading list settings
     max_order = 0, -- Read only maximum order value for data
     root = { -- Data associated with the root XML element
-        schema_version = "1.0", -- XML data schema version
         schema_uri = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd", -- XML data schema file location
     },
 }
 
 --- Create a new reading list manager instance
-function ReadingListManager:new(o)
+-- @param schema_version Version for XML data schema
+function ReadingListManager:new(o, schema_version)
     o = o or {}
     setmetatable(o, self)
     self.__index = self
+
+    if schema_version then
+        o.schema_version = schema_version
+    end
 
     o:init()
 
@@ -45,11 +51,12 @@ end
 
 --- Initialize reading list manager instance
 function ReadingListManager:init()
+    -- Ensure valid schma version is set
+    assert(self.schema_version ~= nil, "`ReadingListManager.schema_version` cannot be nil")
+    assert(self.schema_version.major ~= nil, "`ReadingListManager.schema_version.major` cannot be nil")
+
     -- Ensure reading lists file name is set
-    if not self.reading_lists_file then
-        logger.err("Reading lists file can not be nil")
-        return
-    end
+    assert(type(self.reading_lists_file) == "string", "`ReadingListManager.reading_lists_file` is not a string")
 
     -- Ensure reading lists file path is set
     if not self.reading_lists_path then
@@ -67,15 +74,17 @@ function ReadingListManager:load()
         return
     end
 
+    -- Ensure reading list manager has a schema version set
+    assert(self.schema_version ~= nil, "`ReadingListManager.schema_version` cannot be nil")
+    assert(self.schema_version.major ~= nil, "`ReadingListManager.schema_version.major` cannot be nil")
+
     -- Read data from file
     local file_exists = lfs.attributes(self.reading_lists_path, "mode") == "file"
     local xml, read_err = util.readFromFile(self.reading_lists_path, "r")
     local loaded_data
 
     if xml == nil then
-        if file_exists then
-            logger.err(T("Failed to load %1: %2", self.reading_lists_path, read_err))
-        end
+        assert(not file_exists, T("Failed to load %1: %2", self.reading_lists_path, read_err))
     else
         -- Parse file data
         local parse_ok, parse_err = pcall(function()
@@ -83,30 +92,36 @@ function ReadingListManager:load()
         end)
 
         if not parse_ok then
-            logger.err(T("Failed to parse %1, %2", self.reading_lists_path, parse_err))
-        else
-            -- Verify XML root element
-            if not self.handler.root["reading-lists"] then
-                logger.err(T("Invalid reading lists xml: %1", self.reading_lists_path))
+            if parse_err then
+                error(T("Failed to parse file '%1': %2", self.reading_lists_path, parse_err))
+            else
+                error(T("Failed to parse file '%1'", self.reading_lists_path))
             end
+        else
+            -- Ensure XML has correct root element
+            assert(self.handler.root["reading-lists"], T("Invalid reading lists xml: %1", self.reading_lists_path))
 
-            -- Verify XML data schema version
-            if
-                not self.handler.root["reading-lists"]._attr
-                or self.handler.root["reading-lists"]._attr.version ~= self.root.schema_version
-            then
-                if self.handler.root["reading-lists"]._attr.version then
-                    logger.err(
-                        T(
-                            _(
-                                "Data schema version '%1' does not match plugin schema version '%2'. Data loss or errors may occur"
-                            ),
-                            self.handler.root["reading-lists"]._attr.version,
-                            self.root.schema_version
-                        )
-                    )
+            -- Ensure XML data has valid schema version
+            assert(
+                self.handler.root["reading-lists"]._attr and self.handler.root["reading-lists"]._attr.version,
+                "XML data does not have a schema version"
+            )
+
+            local loaded_version = pluginUtil.parseVersion(self.handler.root["reading-lists"]._attr.version)
+
+            -- Ensure XML data schema version is formatted properly
+            assert(
+                loaded_version ~= nil and loaded_version.major ~= nil and loaded_version.minor ~= nil,
+                "XML data version number is invalid"
+            )
+
+            -- Ensure XML data schema version is compatible with manager schema version
+            local is_valid_version, version_err = pluginUtil.validateVersion(loaded_version, self.schema_version)
+            if not is_valid_version then
+                if version_err then
+                    error(T("XML data schema version is invalid: %1", version_err))
                 else
-                    logger.warn(_("Data schema version missing from data. Data loss or errors may occur"))
+                    error("XML data schema version is invalid")
                 end
             end
 
@@ -155,7 +170,7 @@ function ReadingListManager:flush()
     local write_data = {
         ["reading-lists"] = {
             _attr = {
-                version = self.root.schema_version,
+                version = pluginUtil.toVersionString(self.schema_version),
                 ["xmlns:xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
                 ["xsi:noNamespaceSchemaLocation"] = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd",
             },
@@ -307,7 +322,7 @@ function ReadingListManager:updateMaxOrder()
 end
 
 --- Functions like ```pairs(data)``` but returns data pairs
--- based on their order value
+--- based on their order value
 function ReadingListManager:dataPairs()
     local dataNext = function(data, key)
         return self:_dataNext(data, key)

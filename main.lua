@@ -4,6 +4,9 @@ A plugin for managing reading lists on your KOReader
 @module koplugin.readinglist
 ]]
 
+-- Data schema version used by the plugin
+local DATA_SCHEMA_VERSION = { major = 1, minor = 0 }
+
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
 local _ = require("gettext")
@@ -16,6 +19,7 @@ local ReadingList = WidgetContainer:extend({
     name = "reading_list",
     title = _("Reading Lists"),
     is_doc_only = false,
+    data_schema_version = DATA_SCHEMA_VERSION, -- Data schema version of the plugin
     reading_list_manager = nil, -- Reading lists manager
     reading_list_menu = nil, -- Reading list menu manager
 })
@@ -23,7 +27,7 @@ local ReadingList = WidgetContainer:extend({
 --- Initialize plugin widget
 function ReadingList:init()
     -- Initialize reading list manager
-    self.reading_list_manager = ReadingListManager:new()
+    self.reading_list_manager = ReadingListManager:new({}, self.data_schema_version)
 
     -- Initialize reading list menu
     self.reading_list_menu = ReadingListMenu:new({

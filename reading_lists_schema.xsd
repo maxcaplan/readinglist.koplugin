@@ -45,7 +45,7 @@
 
     <!-- Reading list element type -->
     <xs:complexType name="readingList">
-        <xs:sequence>
+        <xs:all>
             <xs:element name="name" type="readingListName">
                 <xs:annotation>
                     <xs:appinfo>Name of the reading list</xs:appinfo>
@@ -56,7 +56,7 @@
                     <xs:appinfo>List of items in the reading list</xs:appinfo>
                 </xs:annotation>
             </xs:element>
-        </xs:sequence>
+        </xs:all>
     </xs:complexType>
 
     <!-- Reading list list items element type -->
@@ -72,13 +72,13 @@
 
     <!-- Reading list list item element type -->
     <xs:complexType name="listItem">
-        <xs:sequence>
+        <xs:all>
             <xs:element name="name" type="listItemName">
                 <xs:annotation>
                     <xs:appinfo>List item name</xs:appinfo>
                 </xs:annotation>
             </xs:element>
-        </xs:sequence>
+        </xs:all>
     </xs:complexType>
 
     <!-- Root element -->
