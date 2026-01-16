@@ -17,6 +17,214 @@ local lfs = require("libs/libkoreader-lfs")
 
 local T = ffiUtil.template
 
+--- Reading list data
+
+--- Reading list data wrapper
+local ReadingListData = {
+    name = nil,
+    ["list-items"] = {}, -- Reading list items
+    order = 0, -- Reading lists sorting value
+    manager = nil, -- Reading list manager instance
+    max_item_order = 0, -- Read only max order value of list items
+}
+
+--- Create a new reading list data instance
+-- @param o Table to create reading list with
+-- @param order Order value for new reading list
+-- @param manager Object that manages this reading list
+function ReadingListData:new(o, order, manager)
+    o = o or {}
+    setmetatable(o, self)
+    self.__index = self
+
+    if order then
+        o.order = order
+    end
+
+    if manager then
+        o.manager = manager
+    end
+
+    o:init()
+
+    return o
+end
+
+--- Initialize reading list data instance
+function ReadingListData:init()
+    -- Ensure reading list has list items table
+    if not self["list-items"] then
+        self["list-items"] = {}
+    end
+
+    local transformed_items = {}
+
+    -- Ensure data is same shape for multiple items or single item or no items
+    if not self["list-items"]["list-item"] then
+        transformed_items = {}
+    elseif #self["list-items"]["list-item"] > 1 then
+        transformed_items = self["list-items"]["list-item"]
+    else
+        transformed_items = { self["list-items"]["list-item"] }
+    end
+
+    self["list-items"] = {}
+
+    -- Transform list items data
+    for item_idx, item_value in ipairs(transformed_items) do
+        if item_value.name then
+            self["list-items"][item_value.name] = item_value
+            self["list-items"][item_value.name].order = item_idx
+            self.max_item_order = item_idx
+        else
+            logger.warn("List item does not have name. Skipping")
+        end
+    end
+end
+
+--- Return reading lists data formatted for writing
+function ReadingListData:data()
+    -- Temporarily unset reading list manager to not copy it
+    local temp_manager = self.manager
+    self.manager = nil
+
+    -- Copy reading list
+    local data = util.tableDeepCopy(self) or {}
+
+    -- Remove application data from copied reading list
+    data.order = nil
+    data.max_item_order = nil
+
+    -- Transform list items data for writing
+    if data["list-items"] ~= nil then
+        local list_item_data = {}
+
+        for _, item_value in pluginUtil.orderedPairs(data["list-items"]) do
+            local list_item = util.tableDeepCopy(item_value)
+
+            -- Remove list item order value
+            list_item.order = nil
+
+            table.insert(list_item_data, list_item)
+        end
+
+        if #list_item_data > 0 then
+            data["list-items"] = { ["list-item"] = list_item_data }
+        else
+            data["list-items"] = nil
+        end
+    end
+
+    -- Restore manager to reading list
+    self.manager = temp_manager
+
+    return data
+end
+
+--- Return table of all list items for this reading list
+function ReadingListData:getAllListItems()
+    return ReadingListData["list-items"]
+end
+
+--- Return table of a list item by name for this reading list
+function ReadingListData:getListItem(name)
+    return ReadingListData["list-items"][name]
+end
+
+--- Create a list item in this reading list
+function ReadingListData:createListItem(item_name)
+    if not item_name then
+        return
+    end
+
+    -- Ensure item with name does not exist
+    if self["list-items"][item_name] then
+        return
+    end
+
+    -- Increment max item order value
+    self.max_item_order = self.max_item_order + 1
+
+    self["list-items"][item_name] = {
+        name = item_name,
+        order = self.max_item_order,
+    }
+
+    if self.manager then
+        self.manager.updated = true
+    end
+
+    return self["list-items"][item_name]
+end
+
+--- Remove a list item with a specified name from this reading list
+function ReadingListData:deleteListItem(item_name)
+    if not item_name then
+        return false
+    end
+
+    -- If item doesn't exist, do nothing
+    if not self["list-items"][item_name] then
+        return true
+    end
+
+    -- Update max order value if deleted item was the highest order
+    if self["list-items"][item_name].order >= self.max_item_order then
+        self["list-items"][item_name] = nil
+        self:updateMaxItemOrder()
+    else
+        self["list-items"][item_name] = nil
+    end
+
+    if self.manager then
+        self.manager.updated = true
+    end
+
+    return true
+end
+
+--- Update the name of a list item of a specified name in this reading list
+function ReadingListData:updateListItemName(old_name, new_name)
+    if old_name == nil or new_name == nil then
+        return
+    end
+
+    -- Ensure item exists
+    if not self["list-items"][old_name] then
+        return
+    end
+
+    -- Create copy of list item with new name
+    self["list-items"][new_name] = util.tableDeepCopy(self["list-items"][old_name])
+    self["list-items"][new_name].name = new_name
+
+    -- Delete list item with old name
+    self["list-items"][old_name] = nil
+
+    if self.manager then
+        self.manager.updated = true
+    end
+
+    return self["list-items"][new_name]
+end
+
+--- Update max order value for current list items
+function ReadingListData:updateMaxItemOrder()
+    self.max_item_order = 0
+
+    if self["list-items"] then
+        for _, item_value in pairs(self["list-items"]) do
+            if item_value.order > self.max_item_order then
+                self.max_item_order = item_value.order
+            end
+        end
+    end
+
+    return self.max_item_order
+end
+
+--- Reading list manager
+
 local XML_DECLARATION_STRING = '<?xml version="1.0" encoding="UTF-8"?>'
 
 local ReadingListManager = {
@@ -27,13 +235,14 @@ local ReadingListManager = {
     handler = nil, -- Data parser handler
     data = nil, -- Reading lists data table
     updated = false, -- Whether there are unflushed reading list settings
-    max_order = 0, -- Read only maximum order value for data
+    max_list_order = 0, -- Read only maximum order value for reading lists
     root = { -- Data associated with the root XML element
         schema_uri = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd", -- XML data schema file location
     },
 }
 
 --- Create a new reading list manager instance
+-- @param o Table to create reading list manager with
 -- @param schema_version Version for XML data schema
 function ReadingListManager:new(o, schema_version)
     o = o or {}
@@ -138,27 +347,19 @@ function ReadingListManager:load()
 
     self.data = {}
 
-    -- Transform loaded data
+    -- Create reading list data objects from loaded data
     if loaded_data then
         for data_idx, data_value in ipairs(loaded_data) do
             if data_value.name and data_value.name ~= "" then
-                self.data[data_value.name] = data_value
-
-                -- Ensure reading list has list items table
-                if not data_value["list-items"] then
-                    self.data[data_value.name]["list-items"] = {}
-                end
+                self.data[data_value.name] = ReadingListData:new(data_value, data_idx, self)
 
                 -- Set data order value
-                self.data[data_value.name].order = data_idx
-                self.max_order = data_idx
+                self.max_list_order = data_idx
             else
                 logger.warn("Reading list does not have name. Skipping")
             end
         end
     end
-
-    print()
 end
 
 --- Write reading list data to file
@@ -178,18 +379,13 @@ function ReadingListManager:flush()
     }
 
     -- Format data for writing to xml
-    for _, data_value in self:dataPairs() do
+    for _, data_value in pluginUtil.orderedPairs(self.data) do
         if not write_data["reading-lists"]["reading-list"] then
             write_data["reading-lists"]["reading-list"] = {}
         end
 
-        local reading_list = util.tableDeepCopy(data_value)
-
-        -- Remove order value from reading list
-        reading_list.order = nil
-
         -- Add reading list data to write data
-        table.insert(write_data["reading-lists"]["reading-list"], reading_list)
+        table.insert(write_data["reading-lists"]["reading-list"], data_value:data())
     end
 
     -- Convert data to xml
@@ -197,9 +393,6 @@ function ReadingListManager:flush()
 
     -- Prepend xml declaration to xml string
     xml = XML_DECLARATION_STRING .. "\n\n" .. xml
-
-    logger.info("XML TO SAVE")
-    logger.info(xml)
 
     -- Write xml data to file
     local file, open_err = io.open(self.reading_lists_path, "w")
@@ -212,7 +405,9 @@ function ReadingListManager:flush()
     end
 end
 
--- Get all reading lists
+--- Reading lists
+
+--- Get all reading lists
 function ReadingListManager:getAllLists()
     self:load()
     return self.data
@@ -245,13 +440,13 @@ function ReadingListManager:createList(name)
     end
 
     -- Increment max order value
-    self.max_order = self.max_order + 1
+    self.max_list_order = self.max_list_order + 1
 
-    self.data[name] = {
+    self.data[name] = ReadingListData:new({
         name = name,
-        order = self.max_order,
-        ["list-items"] = {},
-    }
+        order = self.max_list_order,
+        manager = self,
+    })
 
     self.updated = true
 
@@ -268,12 +463,19 @@ function ReadingListManager:deleteList(name)
 
     self:load()
 
-    -- Update max order value if deleted list was the highest order
-    if self.data[name].order >= self.max_order then
-        self:updateMaxOrder()
+    -- If list doesn't exist, do nothing
+    if not self.data[name] then
+        return true
     end
 
-    self.data[name] = nil
+    -- Update max order value if deleted list was the highest order
+    if self.data[name].order >= self.max_list_order then
+        self.data[name] = nil
+        self:updateMaxListOrder()
+    else
+        self.data[name] = nil
+    end
+
     self.updated = true
 
     return true
@@ -294,9 +496,13 @@ function ReadingListManager:updateListName(old_name, new_name)
         return
     end
 
+    -- Unset reading list manager so it is not copied
+    self.data[old_name].manager = nil
+
     -- Create copy of reading list with new name
     self.data[new_name] = util.tableDeepCopy(self.data[old_name])
     self.data[new_name].name = new_name
+    self.data[new_name].manager = self
 
     -- Delete reading list with old name
     self.data[old_name] = nil
@@ -306,73 +512,87 @@ function ReadingListManager:updateListName(old_name, new_name)
     return self.data[new_name]
 end
 
---- Update max order value for current data
-function ReadingListManager:updateMaxOrder()
-    self.max_order = 0
+--- Update max order value for current reading lists
+function ReadingListManager:updateMaxListOrder()
+    self.max_list_order = 0
 
     if self.data then
         for _, data_value in pairs(self.data) do
-            if data_value.order > self.max_order then
-                self.max_order = data_value.order
+            if data_value.order > self.max_list_order then
+                self.max_list_order = data_value.order
             end
         end
     end
 
-    return self.max_order
+    return self.max_list_order
 end
 
---- Functions like ```pairs(data)``` but returns data pairs
---- based on their order value
-function ReadingListManager:dataPairs()
-    local dataNext = function(data, key)
-        return self:_dataNext(data, key)
+--- List items
+
+function ReadingListManager:createListItem(list_name, item_name)
+    if not list_name or not item_name then
+        return
     end
-    return dataNext, self.data, nil
+
+    self:load()
+
+    -- Ensure list exists
+    if not self.data[list_name] then
+        return
+    end
+
+    -- Create new list item
+    local new_item = self.data[list_name]:createListItem(item_name)
+
+    if new_item then
+        self.updated = true
+    end
+
+    return new_item
 end
 
---- Internal method to get next data pair in order
-function ReadingListManager:_dataNext(data, key)
-    if data == nil then
-        return nil
+function ReadingListManager:deleteListItem(list_name, item_name)
+    if not list_name or not item_name then
+        return false
     end
 
-    -- Ensure max order is set
-    if not self.max_order then
-        self:updateMaxOrder()
+    self:load()
+
+    -- Ensure list exists
+    if not self.data[list_name] then
+        return false
     end
 
-    -- Return initial index and value
-    if key == nil then
-        -- Return table item with smallest order
-        local value = nil
-        local order
+    -- Delete list item
+    local deleted = self.data[list_name]:deleteListItem(item_name)
 
-        for data_key, data_value in pairs(data) do
-            if order == nil or data_value.order < order then
-                order = data_value.order
-                value = data_value
-                key = data_key
-            end
-        end
-
-        return key, value
+    if deleted then
+        self.updated = true
     end
 
-    local order = data[key].order
+    return deleted
+end
 
-    -- Return next value in order
-    while order <= self.max_order do
-        order = order + 1
-
-        for data_key, data_value in pairs(data) do
-            if data_value.order == order then
-                return data_key, data_value
-            end
-        end
+function ReadingListManager:updateListItemName(list_name, old_name, new_name)
+    if list_name == nil or old_name == nil or new_name == nil then
+        return
     end
 
-    -- No more items
-    return nil
+    self:load()
+
+    -- Ensure list exists
+    if not self.data[list_name] then
+        return
+    end
+
+    -- Update list item
+    local updated_item = self.data[list_name]:updateListItemName(old_name, new_name)
+
+    if updated_item then
+        self.updated = true
+    end
+
+    return updated_item
 end
 
 return ReadingListManager

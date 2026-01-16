@@ -139,4 +139,70 @@ function util.validateVersion(version, ref_version)
     return true, nil
 end
 
+--- Create hash map of table order values
+local function _createOrderMap(table)
+    local order_map = { max = 0, min = 0, map = {} }
+
+    for key, value in pairs(table) do
+        assert(
+            type(value.order) == "number" and value.order >= 0,
+            "All table elements must have a non negative 'order' field"
+        )
+        assert(order_map.map[value.order] == nil, "All table elements must have an 'order' field with a unique value")
+
+        order_map.map[value.order] = key
+
+        if value.order > order_map.max then
+            order_map.max = value.order
+        end
+
+        if value.order < order_map.min then
+            order_map.min = value.order
+        end
+    end
+
+    return order_map
+end
+
+--- Functions like `pairs(table, key)` but gets the next table key and value
+--- based on an `order` field of table elemenets
+function util.orderedNext(table, key)
+    if table == nil then
+        return nil
+    end
+
+    local index = 0
+
+    -- Generate order index if not set
+    if table.__order_map == nil then
+        table.__order_map = _createOrderMap(table)
+        index = table.__order_map.min
+    end
+
+    if key ~= nil then
+        index = table[key].order + 1
+    end
+
+    -- Get next value and index
+    while index <= table.__order_map.max do
+        for order_key, order_value in pairs(table.__order_map.map) do
+            if order_key == index then
+                return table.__order_map.map[index], table[order_value]
+            end
+        end
+
+        index = index + 1
+    end
+
+    -- No more items
+    table.__order_map = nil
+    return nil
+end
+
+--- Functions like `pairs(data)` but returns pairs
+--- based on an `order` field value value
+function util.orderedPairs(table)
+    return util.orderedNext, table, nil
+end
+
 return util

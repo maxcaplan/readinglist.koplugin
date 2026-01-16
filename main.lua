@@ -30,27 +30,7 @@ function ReadingList:init()
     self.reading_list_manager = ReadingListManager:new({}, self.data_schema_version)
 
     -- Initialize reading list menu
-    self.reading_list_menu = ReadingListMenu:new({
-        getAllReadingListsCallback = function()
-            return self.reading_list_manager:getAllLists()
-        end,
-
-        getReadingListCallback = function(name)
-            return self.reading_list_manager:getList(name)
-        end,
-
-        newReadingListCallback = function(name)
-            return self.reading_list_manager:createList(name)
-        end,
-
-        removeReadingListCallback = function(name)
-            return self.reading_list_manager:deleteList(name)
-        end,
-
-        renameReadingListCallback = function(old_name, new_name)
-            return self.reading_list_manager:updateListName(old_name, new_name)
-        end,
-    })
+    self.reading_list_menu = ReadingListMenu:new(nil, self.reading_list_manager)
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)

@@ -9,6 +9,20 @@
 >
     <reading-list>
         <name>My Reading List</name>
+
+        <list-items>
+            <list-item>
+                <name>List Item 1</name>
+            </list-item>
+
+            <list-item>
+                <name>List Item 2</name>
+            </list-item>
+
+            <list-item>
+                <name>List Item 3</name>
+            </list-item>
+        </list-items>
     </reading-list>
 
     <reading-list>
