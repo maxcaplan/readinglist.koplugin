@@ -1,38 +1,41 @@
 --[[
 Reading list plugin menu widget manager
 
-@module koplugin.readinglist.readinglistmenu
+@module koplugin/readinglist/menumanager
 --]]
+
+local Device = require("device")
+local logger = require("logger")
+local ffiUtil = require("ffi/util")
+local _ = require("gettext")
+
+local Screen = Device.screen
+local T = ffiUtil.template
 
 local UIManager = require("ui/uimanager")
 
+local CheckButton = require("ui/widget/checkbutton")
 local Menu = require("ui/widget/menu")
 local ButtonDialog = require("ui/widget/buttondialog")
 local InputDialog = require("ui/widget/inputdialog")
 local InfoMessage = require("ui/widget/infomessage")
 local ConfirmBox = require("ui/widget/confirmbox")
 
-local logger = require("logger")
-local ffiUtil = require("ffi/util")
-local _ = require("gettext")
-
-local T = ffiUtil.template
-
-local ReadingListMenu = {
+local MenuManager = {
     list_menu = nil, -- Menu widget for reading list
     all_lists_menu = nil, -- Menu widget for list of reading lists
-
-    reading_list_manager = nil, -- Reading list manager instance
+    data_manager = nil, -- Reading list data manager instance
+    check_button = nil, -- List menu item checkbox button
 }
 
 --- Create a new reading list menu instance
-function ReadingListMenu:new(o, reading_list_manager)
+function MenuManager:new(o, data_manager)
     o = o or {}
     setmetatable(o, self)
     self.__index = self
 
-    if reading_list_manager then
-        self.reading_list_manager = reading_list_manager
+    if data_manager then
+        self.data_manager = data_manager
     end
 
     return o
@@ -42,11 +45,14 @@ end
 
 --- Show menu for a reading list
 -- @param reading_list Reading list to show menu for
-function ReadingListMenu:showListMenu(reading_list)
+function MenuManager:showListMenu(reading_list)
     if reading_list == nil then
         logger.err("Reading list can not be nil")
         return
     end
+
+    local items_per_page = 14
+    local button_width = math.floor(Screen:getHeight() / items_per_page * 2 / 5) * 2
 
     -- Create reading list menu widget
     self.list_menu = Menu:new({
@@ -57,6 +63,8 @@ function ReadingListMenu:showListMenu(reading_list)
         is_popout = false,
         title_bar_fm_style = true,
         title_bar_left_icon = "appbar.menu",
+        items_per_page = items_per_page,
+        state_w = button_width,
         onLeftButtonTap = function()
             self:showListMenuDialog(reading_list)
         end,
@@ -83,32 +91,64 @@ function ReadingListMenu:showListMenu(reading_list)
         self.list_menu = nil
     end
 
+    -- Disable menu item selection
+    self.list_menu.onMenuSelect = function() end
+
     -- Set menu items
-    self:updateListMenuItemTable(reading_list["list-items"])
+    self:updateListMenuItemTable(reading_list.list_items)
 
     -- Show menu
     UIManager:show(self.list_menu)
     return true
 end
 
+--- Create list menu table item for a reading list item
+-- @param item Item to create table item for
+-- @param reading_list Reading list item is associated with
+function MenuManager:createListMenuTableItem(item, reading_list)
+    if not reading_list then
+        reading_list = self.data_manager:getList(self.list_menu.path)
+    end
+    assert(reading_list, "Reading list can not be nil")
+
+    local check_button
+
+    if self.list_menu.state_w and self.list_menu.state_w > 0 then
+        check_button = CheckButton:new({
+            checked = reading_list:isListItemChecked(item.name),
+            parent = self.list_menu,
+            width = self.list_menu.state_w,
+            callback = function()
+                reading_list:updateListItemChecked(item.name, check_button.checked)
+                check_button.checked = reading_list:isListItemChecked(item.name)
+            end,
+        })
+    end
+
+    return {
+        name = item.name,
+        text = item.name,
+        order = item.order,
+        state = check_button,
+    }
+end
+
 --- Set item table for reading list menu
 -- @param reading_list Reading list to update menu for
 -- @param item_table Existing table to update
 -- @param item_number List item to focus
-function ReadingListMenu:updateListMenuItemTable(list_items, item_number)
+function MenuManager:updateListMenuItemTable(list_items, item_number)
     local item_table
     -- Create item table from data
     if list_items then
+        local reading_list = self.data_manager:getList(self.list_menu.path)
+        assert(reading_list, "Reading list can not be nil")
+
         item_table = {}
 
+        -- Create menu items from list items
         for _, item_value in pairs(list_items) do
-            local item = {
-                name = item_value.name,
-                text = item_value.name,
-                order = item_value.order,
-            }
-
-            table.insert(item_table, item)
+            table.insert(item_table, self:createListMenuTableItem(item_value, reading_list))
         end
 
         -- Sort item table
@@ -129,7 +169,7 @@ function ReadingListMenu:updateListMenuItemTable(list_items, item_number)
 end
 
 --- Show reading list menu dialog
-function ReadingListMenu:showListMenuDialog(reading_list)
+function MenuManager:showListMenuDialog(reading_list)
     local button_dialog
     button_dialog = ButtonDialog:new({
         buttons = {
@@ -152,7 +192,7 @@ function ReadingListMenu:showListMenuDialog(reading_list)
                             assert(reading_list, "Reading list can not be nil")
 
                             -- Check that list item with name doesn't exist
-                            if reading_list.getListItem(new_name) then
+                            if reading_list:getListItem(new_name) then
                                 UIManager:show(InfoMessage:new({
                                     text = T(_("List item already exists: %1"), new_name),
                                 }))
@@ -163,11 +203,14 @@ function ReadingListMenu:showListMenuDialog(reading_list)
 
                             -- Add new list item to menu if created
                             if new_list_item then
-                                table.insert(self.list_menu.item_table, {
-                                    name = new_list_item.name,
-                                    text = new_list_item.name,
-                                    order = new_list_item.order,
-                                })
+                                table.insert(
+                                    self.list_menu.item_table,
+                                    self:createListMenuTableItem({
+                                        name = new_list_item.name,
+                                        text = new_list_item.name,
+                                        order = new_list_item.order,
+                                    }, reading_list)
+                                )
 
                                 -- Show new list item
                                 self:updateListMenuItemTable(nil, #self.list_menu.item_table)
@@ -190,7 +233,7 @@ end
 --- List menu menu item hold event handler
 -- @param reading_list Reading list data object associated with this menu
 -- @param item Menu item associated with this event
-function ReadingListMenu:onListMenuHold(reading_list, item)
+function MenuManager:onListMenuHold(reading_list, item)
     local button_dialog
     button_dialog = ButtonDialog:new({
         title = item.name,
@@ -221,7 +264,7 @@ end
 --- Remove list item event handler
 -- @param reading_list Reading list data object that contains list item to remove
 -- @param item Menu item associated with this list item to remove
-function ReadingListMenu:onRemoveListItem(reading_list, item)
+function MenuManager:onRemoveListItem(reading_list, item)
     local confirm_box
     confirm_box = ConfirmBox:new({
         text = _("Remove list item?") .. "\n\n" .. item.name,
@@ -245,12 +288,12 @@ end
 --- Rename list item event handler
 -- @param reading_list Reading list data object that contains list item to rename
 -- @param item Menu item associated with this list item to rename
-function ReadingListMenu:onRenameListItem(reading_list, item)
+function MenuManager:onRenameListItem(reading_list, item)
     local function promptCallback(new_name)
         assert(reading_list, "Reading list can not be nil")
 
         -- Check that list item with name doesn't exist
-        if reading_list.getListItem(new_name) then
+        if reading_list:getListItem(new_name) then
             UIManager:show(InfoMessage:new({
                 text = T(_("List item already exists: %1"), new_name),
             }))
@@ -272,61 +315,15 @@ function ReadingListMenu:onRenameListItem(reading_list, item)
     self:namePrompt(_("Enter list item name"), promptCallback, item.name)
 end
 
---- Prompt user for reading list name input
-function ReadingListMenu:editListItemName(reading_list, editCallback, old_name)
-    local name_input
-    name_input = InputDialog:new({
-        title = _("Enter list item name"),
-        input = old_name,
-        buttons = {
-            {
-                {
-                    text = _("Cancel"),
-                    id = "close",
-                    callback = function()
-                        UIManager:close(name_input)
-                    end,
-                },
-                {
-                    text = _("Save"),
-                    callback = function()
-                        local new_name = name_input:getInputText()
-
-                        -- Keep input open if name is empty or unchanged
-                        if new_name == "" or new_name == old_name then
-                            return
-                        end
-
-                        UIManager:close(name_input)
-
-                        -- Check that reading list with name doesn't exist
-                        if reading_list["list-items"][new_name] then
-                            UIManager:show(InfoMessage:new({
-                                text = T(_("List item already exists: %1"), new_name),
-                            }))
-                            return
-                        end
-
-                        editCallback(new_name)
-                    end,
-                },
-            },
-        },
-    })
-
-    UIManager:show(name_input)
-    name_input:onShowKeyboard()
-end
-
 --- All reading lists menu
 
 --- Event handler for showing reading lists menu
 -- @param reading_lists List of all reading lists
-function ReadingListMenu:showAllListsMenu()
-    assert(self.reading_list_manager, "Reading list manager can not be nil")
+function MenuManager:showAllListsMenu()
+    assert(self.data_manager, "Reading list manager can not be nil")
 
     -- Get reading lists
-    local reading_lists = self.reading_list_manager:getAllLists()
+    local reading_lists = self.data_manager:getAllLists()
     assert(reading_lists ~= nil, "Failed to get reading lists")
 
     -- Create menu widget
@@ -366,10 +363,18 @@ function ReadingListMenu:showAllListsMenu()
     return true
 end
 
+function MenuManager:createAllListsMenuTableItem(reading_list)
+    return {
+        text = reading_list.name,
+        name = reading_list.name,
+        order = reading_list.order,
+    }
+end
+
 --- Set item table for all reading lists menu
 -- @param reading_lists List of reading lists to update menu with
 -- @param item_number List item to focus
-function ReadingListMenu:updateAllListsMenuItemTable(reading_lists, item_number)
+function MenuManager:updateAllListsMenuItemTable(reading_lists, item_number)
     local item_table
 
     if reading_lists then
@@ -377,11 +382,7 @@ function ReadingListMenu:updateAllListsMenuItemTable(reading_lists, item_number)
 
         -- set item table items for reading lists data
         for _, reading_list_value in pairs(reading_lists) do
-            table.insert(item_table, {
-                text = reading_list_value.name,
-                name = reading_list_value.name,
-                order = reading_list_value.order,
-            })
+            table.insert(item_table, self:createAllListsMenuTableItem(reading_list_value))
         end
 
         -- Sort item table by item order
@@ -402,7 +403,7 @@ function ReadingListMenu:updateAllListsMenuItemTable(reading_lists, item_number)
 end
 
 --- Show dialog for all reading lists menu event handler
-function ReadingListMenu:showAllListsMenuDialog()
+function MenuManager:showAllListsMenuDialog()
     local button_dialog
     button_dialog = ButtonDialog:new({
         buttons = {
@@ -411,25 +412,28 @@ function ReadingListMenu:showAllListsMenuDialog()
                     text = _("New reading list"),
                     callback = function()
                         local function promptCallback(new_name)
-                            assert(self.reading_list_manager, "Reading list manager can not be nil")
+                            assert(self.data_manager, "Reading list manager can not be nil")
 
                             -- Check that reading list with name doesn't exist
-                            if self.reading_list_manager:getList(new_name) then
+                            if self.data_manager:getList(new_name) then
                                 UIManager:show(InfoMessage:new({
                                     text = T(_("Reading list already exists: %1"), new_name),
                                 }))
                                 return
                             end
 
-                            local new_reading_list = self.reading_list_manager:createList(new_name)
+                            local new_reading_list = self.data_manager:createList(new_name)
 
                             -- Update all reading lists menu
                             if new_reading_list then
-                                table.insert(self.all_lists_menu.item_table, {
-                                    text = new_reading_list.name,
-                                    name = new_reading_list.name,
-                                    order = new_reading_list.order,
-                                })
+                                table.insert(
+                                    self.all_lists_menu.item_table,
+                                    self:createAllListsMenuTableItem({
+                                        text = new_reading_list.name,
+                                        name = new_reading_list.name,
+                                        order = new_reading_list.order,
+                                    })
+                                )
 
                                 -- Show new reading list
                                 self:updateAllListsMenuItemTable(nil, #self.all_lists_menu.item_table)
@@ -450,11 +454,11 @@ function ReadingListMenu:showAllListsMenuDialog()
 end
 
 --- All Reading lists menu choice event handler
-function ReadingListMenu:onAllListsMenuChoice(item)
+function MenuManager:onAllListsMenuChoice(item)
     assert(item ~= nil, "All lists menu item can not be nil")
     assert(type(item.name) == "string", "All lists menu item name must be string")
 
-    local reading_list = self.reading_list_manager:getList(item.name)
+    local reading_list = self.data_manager:getList(item.name)
 
     if reading_list == nil then
         logger.err("Failed to get reading list with name")
@@ -465,7 +469,7 @@ function ReadingListMenu:onAllListsMenuChoice(item)
 end
 
 --- All Reading lists menu hold event handler
-function ReadingListMenu:onAllListsMenuHold(item)
+function MenuManager:onAllListsMenuHold(item)
     assert(item ~= nil, "All lists menu item can not be nil")
     assert(type(item.name) == "string", "All lists menu item name must be string")
 
@@ -497,15 +501,15 @@ function ReadingListMenu:onAllListsMenuHold(item)
 end
 
 --- Remove reading list event handler
-function ReadingListMenu:onRemoveReadingList(item)
+function MenuManager:onRemoveReadingList(item)
     local confirm_box
     confirm_box = ConfirmBox:new({
         text = _("Remove reading list?") .. "\n\n" .. item.name,
         ok_text = _("Remove"),
         ok_callback = function()
-            assert(self.reading_list_manager, "Reading list manager can not be nil")
+            assert(self.data_manager, "Reading list manager can not be nil")
 
-            if self.reading_list_manager:deleteList(item.name) then
+            if self.data_manager:deleteList(item.name) then
                 -- Remove reading list menu item from menu
                 table.remove(self.all_lists_menu.item_table, item.idx)
                 self:updateAllListsMenuItemTable()
@@ -519,22 +523,22 @@ function ReadingListMenu:onRemoveReadingList(item)
 end
 
 --- Rename reading list event handler
-function ReadingListMenu:onRenameReadingList(item)
+function MenuManager:onRenameReadingList(item)
     assert(item ~= nil, "All lists menu item can not be nil")
     assert(type(item.name) == "string", "All lists menu item name must be string")
 
     local function promptCallback(new_name)
-        assert(self.reading_list_manager, "Reading list manager can not be nil")
+        assert(self.data_manager, "Reading list manager can not be nil")
 
         -- Check that reading list with name doesn't exist
-        if self.reading_list_manager:getList(new_name) then
+        if self.data_manager:getList(new_name) then
             UIManager:show(InfoMessage:new({
                 text = T(_("Reading list already exists: %1"), new_name),
             }))
             return
         end
 
-        local new_reading_list = self.reading_list_manager:updateListName(item.name, new_name)
+        local new_reading_list = self.data_manager:updateListName(item.name, new_name)
 
         -- Update all reading lists menu
         if new_reading_list then
@@ -554,7 +558,7 @@ end
 --- Prompt user for name input
 -- @param prompt_title Title for the prompt
 -- @param promptCallback Function called when a name is successfuly inputed
-function ReadingListMenu:namePrompt(prompt_title, promptCallback, old_name)
+function MenuManager:namePrompt(prompt_title, promptCallback, old_name)
     local name_input
     name_input = InputDialog:new({
         title = prompt_title,
@@ -591,4 +595,4 @@ function ReadingListMenu:namePrompt(prompt_title, promptCallback, old_name)
     name_input:onShowKeyboard()
 end
 
-return ReadingListMenu
+return MenuManager

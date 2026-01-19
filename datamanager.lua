@@ -1,28 +1,23 @@
 --[[
 Reading list plugin data manager
 
-@module koplugin.readinglist.readinglistmanager
+@module koplugin/readinglist/datamanager
 --]]
 
-local xml2lua = require("lib.xml2lua.xml2lua")
-local handler = require("lib.xml2lua.xmlhandler.tree")
-local pluginUtil = require("lib.util")
+local xml2lua = require("lib/xml2lua/xml2lua")
+local handler = require("lib/xml2lua/xmlhandler/tree")
+local pluginUtil = require("lib/util")
 
 local DataStorage = require("datastorage")
 
 local logger = require("logger")
 local util = require("util")
-local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
-
-local T = ffiUtil.template
-
---- Reading list data
 
 --- Reading list data wrapper
 local ReadingListData = {
     name = nil,
-    ["list-items"] = {}, -- Reading list items
+    list_items = {}, -- Reading list items
     order = 0, -- Reading lists sorting value
     manager = nil, -- Reading list manager instance
     max_item_order = 0, -- Read only max order value of list items
@@ -52,34 +47,38 @@ end
 
 --- Initialize reading list data instance
 function ReadingListData:init()
-    -- Ensure reading list has list items table
-    if not self["list-items"] then
-        self["list-items"] = {}
+    if type(self.list_items) == "table" and #self.list_items > 0 then
+        return
     end
 
-    local transformed_items = {}
+    self.list_items = {}
+
+    if not self["list-items"] then
+        return
+    end
 
     -- Ensure data is same shape for multiple items or single item or no items
     if not self["list-items"]["list-item"] then
-        transformed_items = {}
+        self["list-items"] = {}
     elseif #self["list-items"]["list-item"] > 1 then
-        transformed_items = self["list-items"]["list-item"]
+        self["list-items"] = self["list-items"]["list-item"]
     else
-        transformed_items = { self["list-items"]["list-item"] }
+        self["list-items"] = { self["list-items"]["list-item"] }
     end
 
-    self["list-items"] = {}
-
     -- Transform list items data
-    for item_idx, item_value in ipairs(transformed_items) do
+    for item_idx, item_value in ipairs(self["list-items"]) do
         if item_value.name then
-            self["list-items"][item_value.name] = item_value
-            self["list-items"][item_value.name].order = item_idx
+            self.list_items[item_value.name] = item_value
+            self.list_items[item_value.name].order = item_idx
             self.max_item_order = item_idx
         else
             logger.warn("List item does not have name. Skipping")
         end
     end
+
+    self["list-items"] = nil
+    logger.info(self.list_items)
 end
 
 --- Return reading lists data formatted for writing
@@ -96,10 +95,10 @@ function ReadingListData:data()
     data.max_item_order = nil
 
     -- Transform list items data for writing
-    if data["list-items"] ~= nil then
+    if data.list_items ~= nil then
         local list_item_data = {}
 
-        for _, item_value in pluginUtil.orderedPairs(data["list-items"]) do
+        for _, item_value in pluginUtil.orderedPairs(data.list_items) do
             local list_item = util.tableDeepCopy(item_value)
 
             -- Remove list item order value
@@ -113,6 +112,8 @@ function ReadingListData:data()
         else
             data["list-items"] = nil
         end
+
+        data.list_items = nil
     end
 
     -- Restore manager to reading list
@@ -123,12 +124,12 @@ end
 
 --- Return table of all list items for this reading list
 function ReadingListData:getAllListItems()
-    return ReadingListData["list-items"]
+    return self.list_items
 end
 
 --- Return table of a list item by name for this reading list
 function ReadingListData:getListItem(name)
-    return ReadingListData["list-items"][name]
+    return self.list_items[name]
 end
 
 --- Create a list item in this reading list
@@ -138,14 +139,14 @@ function ReadingListData:createListItem(item_name)
     end
 
     -- Ensure item with name does not exist
-    if self["list-items"][item_name] then
+    if self.list_items[item_name] then
         return
     end
 
     -- Increment max item order value
     self.max_item_order = self.max_item_order + 1
 
-    self["list-items"][item_name] = {
+    self.list_items[item_name] = {
         name = item_name,
         order = self.max_item_order,
     }
@@ -154,7 +155,7 @@ function ReadingListData:createListItem(item_name)
         self.manager.updated = true
     end
 
-    return self["list-items"][item_name]
+    return self.list_items[item_name]
 end
 
 --- Remove a list item with a specified name from this reading list
@@ -164,16 +165,16 @@ function ReadingListData:deleteListItem(item_name)
     end
 
     -- If item doesn't exist, do nothing
-    if not self["list-items"][item_name] then
+    if not self.list_items[item_name] then
         return true
     end
 
     -- Update max order value if deleted item was the highest order
-    if self["list-items"][item_name].order >= self.max_item_order then
-        self["list-items"][item_name] = nil
+    if self.list_items[item_name].order >= self.max_item_order then
+        self.list_items[item_name] = nil
         self:updateMaxItemOrder()
     else
-        self["list-items"][item_name] = nil
+        self.list_items[item_name] = nil
     end
 
     if self.manager then
@@ -190,30 +191,30 @@ function ReadingListData:updateListItemName(old_name, new_name)
     end
 
     -- Ensure item exists
-    if not self["list-items"][old_name] then
+    if not self.list_items[old_name] then
         return
     end
 
     -- Create copy of list item with new name
-    self["list-items"][new_name] = util.tableDeepCopy(self["list-items"][old_name])
-    self["list-items"][new_name].name = new_name
+    self.list_items[new_name] = util.tableDeepCopy(self.list_items[old_name])
+    self.list_items[new_name].name = new_name
 
     -- Delete list item with old name
-    self["list-items"][old_name] = nil
+    self.list_items[old_name] = nil
 
     if self.manager then
         self.manager.updated = true
     end
 
-    return self["list-items"][new_name]
+    return self.list_items[new_name]
 end
 
 --- Update max order value for current list items
 function ReadingListData:updateMaxItemOrder()
     self.max_item_order = 0
 
-    if self["list-items"] then
-        for _, item_value in pairs(self["list-items"]) do
+    if self.list_items then
+        for _, item_value in pairs(self.list_items) do
             if item_value.order > self.max_item_order then
                 self.max_item_order = item_value.order
             end
@@ -223,14 +224,79 @@ function ReadingListData:updateMaxItemOrder()
     return self.max_item_order
 end
 
+--- Get the checked state of a list menu item
+function ReadingListData:isListItemChecked(name)
+    -- Item not checked if it doesn't exist
+    if not self.list_items[name] then
+        return false
+    end
+
+    -- Item not checked if it doesn't have attributes
+    if not self.list_items[name]._attr then
+        return false
+    end
+
+    return self.list_items[name]._attr.checked == "true" or false
+end
+
+--- Update the checked state of a list menu item to a value
+function ReadingListData:updateListItemChecked(name, value)
+    if not name then
+        -- Invalid name
+        return false
+    end
+
+    if type(value) ~= "boolean" and type(value) ~= "nil" then
+        -- Invalid value
+        return false
+    end
+
+    if not self.list_items[name] then
+        -- Can not check nonexistent item
+        return false
+    end
+
+    -- Convert boolean value to string
+    if type(value) == "boolean" then
+        if value then
+            value = "true"
+        else
+            value = "false"
+        end
+    end
+
+    -- Set checked state
+    if not self.list_items[name]._attr then
+        self.list_items[name]._attr = { checked = value }
+    else
+        self.list_items[name]._attr.checked = value
+    end
+
+    if self.manager then
+        self.manager.updated = true
+    end
+
+    return true
+end
+
+--- Set the checked state of a list menu item to true
+function ReadingListData:checkListItem(name)
+    return self:updateListItemChecked(name, true)
+end
+
+--- Set the checked state of a list menu item to false
+function ReadingListData:uncheckListItem(name)
+    return self:updateListItemChecked(name, false)
+end
+
 --- Reading list manager
 
 local XML_DECLARATION_STRING = '<?xml version="1.0" encoding="UTF-8"?>'
 
-local ReadingListManager = {
+local DataManager = {
     schema_version = { major = 1, minor = 0 }, -- XML data schema version
-    reading_lists_file = "reading_lists.xml", -- Reading lists data file name
-    reading_lists_path = nil, -- Reading lists data file path
+    file_name = "reading_lists.xml", -- Reading lists data file name
+    file_path = nil, -- Reading lists data file path
     parser = nil, -- Data file parser
     handler = nil, -- Data parser handler
     data = nil, -- Reading lists data table
@@ -244,7 +310,7 @@ local ReadingListManager = {
 --- Create a new reading list manager instance
 -- @param o Table to create reading list manager with
 -- @param schema_version Version for XML data schema
-function ReadingListManager:new(o, schema_version)
+function DataManager:new(o, schema_version)
     o = o or {}
     setmetatable(o, self)
     self.__index = self
@@ -259,17 +325,17 @@ function ReadingListManager:new(o, schema_version)
 end
 
 --- Initialize reading list manager instance
-function ReadingListManager:init()
+function DataManager:init()
     -- Ensure valid schma version is set
-    assert(self.schema_version ~= nil, "`ReadingListManager.schema_version` cannot be nil")
-    assert(self.schema_version.major ~= nil, "`ReadingListManager.schema_version.major` cannot be nil")
+    assert(self.schema_version ~= nil, "Data manager schema version cannot be nil")
+    assert(self.schema_version.major ~= nil, "Data manager Schema Major Version cannot be nil")
 
     -- Ensure reading lists file name is set
-    assert(type(self.reading_lists_file) == "string", "`ReadingListManager.reading_lists_file` is not a string")
+    assert(type(self.file_name) == "string", "Data manager file name must be string")
 
     -- Ensure reading lists file path is set
-    if not self.reading_lists_path then
-        self.reading_lists_path = DataStorage:getDataDir() .. "/" .. self.reading_lists_file
+    if not self.file_path then
+        self.file_path = DataStorage:getDataDir() .. "/" .. self.file_name
     end
 
     -- Instantiate XML parser
@@ -278,37 +344,33 @@ function ReadingListManager:init()
 end
 
 --- Load reading lists data
-function ReadingListManager:load()
+function DataManager:load()
     if self.data then
         return
     end
 
-    -- Ensure reading list manager has a schema version set
-    assert(self.schema_version ~= nil, "`ReadingListManager.schema_version` cannot be nil")
-    assert(self.schema_version.major ~= nil, "`ReadingListManager.schema_version.major` cannot be nil")
+    -- Ensure valid schma version is set
+    assert(self.schema_version ~= nil, "Data manager schema version cannot be nil")
+    assert(self.schema_version.major ~= nil, "Data manager Schema Major Version cannot be nil")
 
     -- Read data from file
-    local file_exists = lfs.attributes(self.reading_lists_path, "mode") == "file"
-    local xml, read_err = util.readFromFile(self.reading_lists_path, "r")
+    local file_exists = lfs.attributes(self.file_path, "mode") == "file"
+    local xml, read_err = util.readFromFile(self.file_path, "r")
     local loaded_data
 
     if xml == nil then
-        assert(not file_exists, T("Failed to load %1: %2", self.reading_lists_path, read_err))
+        assert(not file_exists, "Failed to load file")
     else
         -- Parse file data
-        local parse_ok, parse_err = pcall(function()
+        local parse_ok = pcall(function()
             return self.parser:parse(xml)
         end)
 
         if not parse_ok then
-            if parse_err then
-                error(T("Failed to parse file '%1': %2", self.reading_lists_path, parse_err))
-            else
-                error(T("Failed to parse file '%1'", self.reading_lists_path))
-            end
+            error("Failed to parse file")
         else
             -- Ensure XML has correct root element
-            assert(self.handler.root["reading-lists"], T("Invalid reading lists xml: %1", self.reading_lists_path))
+            assert(self.handler.root["reading-lists"], "Invalid reading lists xml")
 
             -- Ensure XML data has valid schema version
             assert(
@@ -325,13 +387,9 @@ function ReadingListManager:load()
             )
 
             -- Ensure XML data schema version is compatible with manager schema version
-            local is_valid_version, version_err = pluginUtil.validateVersion(loaded_version, self.schema_version)
+            local is_valid_version = pluginUtil.validateVersion(loaded_version, self.schema_version)
             if not is_valid_version then
-                if version_err then
-                    error(T("XML data schema version is invalid: %1", version_err))
-                else
-                    error("XML data schema version is invalid")
-                end
+                error("XML data schema version is invalid")
             end
 
             -- Ensure data is same shape for multiple lists or single list or no lists
@@ -363,7 +421,7 @@ function ReadingListManager:load()
 end
 
 --- Write reading list data to file
-function ReadingListManager:flush()
+function DataManager:flush()
     if self.data == nil or not self.updated then
         return
     end
@@ -373,7 +431,7 @@ function ReadingListManager:flush()
             _attr = {
                 version = pluginUtil.toVersionString(self.schema_version),
                 ["xmlns:xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
-                ["xsi:noNamespaceSchemaLocation"] = "https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd",
+                ["xsi:noNamespaceSchemaLocation"] = self.root.schema_uri,
             },
         },
     }
@@ -395,27 +453,27 @@ function ReadingListManager:flush()
     xml = XML_DECLARATION_STRING .. "\n\n" .. xml
 
     -- Write xml data to file
-    local file, open_err = io.open(self.reading_lists_path, "w")
+    local file, open_err = io.open(self.file_path, "w")
 
     if file and not open_err then
         file:write(xml)
         self.updated = false
     else
-        logger.err(T("Failed to write reading lists to file: %1", open_err))
+        logger.err("Failed to write reading lists to file")
     end
 end
 
 --- Reading lists
 
 --- Get all reading lists
-function ReadingListManager:getAllLists()
+function DataManager:getAllLists()
     self:load()
     return self.data
 end
 
 --- Get a reading list by name
 -- @param name Name of the reading list
-function ReadingListManager:getList(name)
+function DataManager:getList(name)
     if name == nil then
         return
     end
@@ -428,7 +486,7 @@ end
 --- Create new reading list
 -- @param name Name of new reading list
 -- @return New reading list
-function ReadingListManager:createList(name)
+function DataManager:createList(name)
     if name == nil then
         return
     end
@@ -456,7 +514,7 @@ end
 --- Delete reading list data
 -- @param name Name of reading list to delete
 -- @return If delete was successful
-function ReadingListManager:deleteList(name)
+function DataManager:deleteList(name)
     if name == nil then
         return false
     end
@@ -485,7 +543,7 @@ end
 -- @param old_name Name of existing reading list
 -- @param new_name Name to update reading list to
 -- @return Updated reading list
-function ReadingListManager:updateListName(old_name, new_name)
+function DataManager:updateListName(old_name, new_name)
     if old_name == nil or new_name == nil then
         return
     end
@@ -513,7 +571,7 @@ function ReadingListManager:updateListName(old_name, new_name)
 end
 
 --- Update max order value for current reading lists
-function ReadingListManager:updateMaxListOrder()
+function DataManager:updateMaxListOrder()
     self.max_list_order = 0
 
     if self.data then
@@ -529,7 +587,7 @@ end
 
 --- List items
 
-function ReadingListManager:createListItem(list_name, item_name)
+function DataManager:createListItem(list_name, item_name)
     if not list_name or not item_name then
         return
     end
@@ -551,7 +609,7 @@ function ReadingListManager:createListItem(list_name, item_name)
     return new_item
 end
 
-function ReadingListManager:deleteListItem(list_name, item_name)
+function DataManager:deleteListItem(list_name, item_name)
     if not list_name or not item_name then
         return false
     end
@@ -573,7 +631,7 @@ function ReadingListManager:deleteListItem(list_name, item_name)
     return deleted
 end
 
-function ReadingListManager:updateListItemName(list_name, old_name, new_name)
+function DataManager:updateListItemName(list_name, old_name, new_name)
     if list_name == nil or old_name == nil or new_name == nil then
         return
     end
@@ -595,4 +653,4 @@ function ReadingListManager:updateListItemName(list_name, old_name, new_name)
     return updated_item
 end
 
-return ReadingListManager
+return DataManager

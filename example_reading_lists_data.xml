@@ -5,13 +5,13 @@
 <reading-lists
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/maxcaplan/readinglist.koplugin/refs/heads/master/reading_lists_schema.xsd"
-    version="1"
+    version="1.1"
 >
     <reading-list>
         <name>My Reading List</name>
 
         <list-items>
-            <list-item>
+            <list-item checked="true">
                 <name>List Item 1</name>
             </list-item>
 
@@ -19,7 +19,7 @@
                 <name>List Item 2</name>
             </list-item>
 
-            <list-item>
+            <list-item checked="false">
                 <name>List Item 3</name>
             </list-item>
         </list-items>

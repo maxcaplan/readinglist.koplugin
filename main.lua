@@ -5,14 +5,14 @@ A plugin for managing reading lists on your KOReader
 ]]
 
 -- Data schema version used by the plugin
-local DATA_SCHEMA_VERSION = { major = 1, minor = 0 }
-
-local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local DATA_SCHEMA_VERSION = { major = 1, minor = 1 }
 
 local _ = require("gettext")
 
-local ReadingListManager = require("readinglistmanager")
-local ReadingListMenu = require("readinglistmenu")
+local WidgetContainer = require("ui/widget/container/widgetcontainer")
+
+local DataManager = require("datamanager")
+local MenuManager = require("menumanager")
 
 --- Reading list plugin widget
 local ReadingList = WidgetContainer:extend({
@@ -20,17 +20,17 @@ local ReadingList = WidgetContainer:extend({
     title = _("Reading Lists"),
     is_doc_only = false,
     data_schema_version = DATA_SCHEMA_VERSION, -- Data schema version of the plugin
-    reading_list_manager = nil, -- Reading lists manager
-    reading_list_menu = nil, -- Reading list menu manager
+    data_manager = nil, -- Reading list data manager
+    menu_manager = nil, -- Reading list menu manager
 })
 
 --- Initialize plugin widget
 function ReadingList:init()
-    -- Initialize reading list manager
-    self.reading_list_manager = ReadingListManager:new({}, self.data_schema_version)
+    -- Initialize data manager
+    self.data_manager = DataManager:new({}, self.data_schema_version)
 
-    -- Initialize reading list menu
-    self.reading_list_menu = ReadingListMenu:new(nil, self.reading_list_manager)
+    -- Initialize menu manager
+    self.menu_manager = MenuManager:new(nil, self.data_manager)
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
@@ -38,7 +38,7 @@ end
 
 --- Flush widget settings event handler.
 function ReadingList:onFlushSettings()
-    self.reading_list_manager:flush()
+    self.data_manager:flush()
 end
 
 --- Register plugin widget actions
@@ -59,7 +59,7 @@ end
 
 --- Show all reading lists menu event handler
 function ReadingList:onShowAllReadingListsMenu()
-    self.reading_list_menu:showAllListsMenu()
+    self.menu_manager:showAllListsMenu()
 end
 
 return ReadingList
