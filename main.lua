@@ -4,8 +4,13 @@ A plugin for managing reading lists on your KOReader
 @module koplugin.readinglist
 ]]
 
--- Data schema version used by the plugin
-local DATA_SCHEMA_VERSION = { major = 1, minor = 1 }
+local logger = require("logger")
+local pluginUtil = require("lib/util")
+
+-- Get plugin meta version number
+local PLUGIN_VERSION = pluginUtil.parseVersion(require("_meta").version)
+assert(PLUGIN_VERSION, "ReadingList: Plugin version number is invalid")
+logger.dbg("ReadingList: version " .. pluginUtil.toVersionString(PLUGIN_VERSION))
 
 local _ = require("gettext")
 
@@ -19,7 +24,7 @@ local ReadingList = WidgetContainer:extend({
     name = "reading_list",
     title = _("Reading Lists"),
     is_doc_only = false,
-    data_schema_version = DATA_SCHEMA_VERSION, -- Data schema version of the plugin
+    data_schema_version = PLUGIN_VERSION, -- Data schema version of the plugin
     data_manager = nil, -- Reading list data manager
     menu_manager = nil, -- Reading list menu manager
 })

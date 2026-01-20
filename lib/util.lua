@@ -10,6 +10,68 @@ local T = ffiUtil.template
 
 local util = {}
 
+--- Load meta data string from text file
+-- @param file File to load relative to plugin dir
+function util.loadMeta(file)
+    local function script_path()
+        local path = debug.getinfo(2, "S").source:sub(2)
+        path = path:match("(.*/)") or "./"
+
+        -- Remove `lib/` from end of path
+        local suffix = "lib/"
+        if path:sub(-#suffix) == suffix then
+            path = path:sub(1, -#suffix - 1)
+        end
+
+        return path
+    end
+
+    local function startsWithAny(s, patterns)
+        for _, pattern in ipairs(patterns) do
+            if string.find(s, pattern) == 1 then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local meta_fields = {
+        name = { "NAME", "name", "Name" },
+        fullname = { "FULLNAME", "fullname", "FullName", "FULL_NAME", "full_name", "Full_Name" },
+        description = { "DESCRIPTION", "description", "Description" },
+        version = { "VERSION", "version", "Version" },
+    }
+
+    local meta = {}
+
+    for line in io.lines(script_path() .. file) do
+        if type(line) == "string" then
+            for meta_field, meta_key_names in pairs(meta_fields) do
+                if startsWithAny(line, meta_key_names) then
+                    local idx = 0
+                    for sub_str in string.gmatch(line, "([^=]+)") do
+                        if idx > 1 then
+                            break
+                        end
+
+                        if idx == 1 then
+                            meta[meta_field] = sub_str
+                            break
+                        end
+
+                        idx = idx + 1
+                    end
+                end
+            end
+        end
+    end
+
+    assert(meta.name, "ReadingList: Name not found in plugin meta file")
+    assert(meta.version, "ReadingList: Version number not found in plugin meta file")
+    return meta
+end
+
 --- Return table of major and minor numbers of a string or number.
 --- Example: "1.10" -> { major = 1, minor = 10 }
 --- Example: "20" -> { major = 20, minor = 0 }
