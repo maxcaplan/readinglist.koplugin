@@ -9,7 +9,7 @@ local meta = {
 }
 
 if loaded_meta.fullname then
-    meta.fullname = _(meta.fullname)
+    meta.fullname = _(loaded_meta.fullname)
 end
 
 if loaded_meta.description then
