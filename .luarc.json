@@ -9,7 +9,8 @@
         ],
         "ignoreDir": [
             ".vscode",
-            ".git"
+            ".git",
+            "dist"
         ]
     },
     "runtime.version": "LuaJIT",

@@ -1,0 +1,10 @@
+.git/
+.editorconfig
+.gitignore
+.gitmodules
+.luarc.json
+.releaseignore
+example_reading_lists_data.xml
+reading_lists_schema.xsd
+release.sh
+koreader/
